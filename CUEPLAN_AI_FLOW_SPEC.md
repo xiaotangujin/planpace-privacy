@@ -22,8 +22,9 @@ https://<github-user>.github.io/<repo>/cueplan-ai-flow-v1
 - Keep all schema keys, enum values, and protocol identifiers in English.
 - Generate user-facing text in the user's language.
 - Do not require AI assistants to understand CuePlan's internal model.
-- Do not require exact coordinates for location-based flows.
-- Allow CuePlan to show a preview and ask the user to confirm uncertain fields.
+- Use emoji icons for the plan and every task node whenever possible.
+- Use location-based start or end rules only when reliable coordinates are available.
+- Allow CuePlan to show a preview and ask the user to confirm uncertain non-trigger location fields.
 - Never auto-start an imported workflow.
 
 ## 2. Language Rules
@@ -196,7 +197,7 @@ B-plan imports should always show an import preview before saving because route 
 | `title` | string | yes | Workflow title in the user's language |
 | `summary` | string | no | Short description in the user's language |
 | `mode` | string | no | `simple`, `normal`, or `bPlan`; default `normal` |
-| `icon` | string | no | Prefer one emoji |
+| `icon` | string | no | Prefer exactly one emoji, such as `✈️`, `🧠`, `🏠`, or `🎒` |
 | `start` | object | no | Start rule; default manual |
 | `repeat` | object | no | Repeat rule; default none |
 | `nodes` | array | yes | Ordered nodes |
@@ -226,14 +227,18 @@ If the user did not provide a specific date, do not invent one. Generate the tim
 
 ### Location Start
 
+Only use `type: "location"` when both `latitude` and `longitude` are known and likely reliable. If coordinates are not available, do not create a location start rule. Use manual or scheduled start instead, and put the place or address in the plan summary or node note.
+
 ```json
 {
   "type": "location",
   "location": {
     "placeName": "Office",
     "addressText": "100 Main Street, New York",
+    "latitude": 40.7128,
+    "longitude": -74.0060,
     "radiusMeters": 150,
-    "resolvePolicy": "askUser"
+    "resolvePolicy": "useCoordinate"
   },
   "arrivalPolicy": "firstArrival"
 }
@@ -276,7 +281,7 @@ Repeat rules are most useful for scheduled starts. Manual start flows should usu
 | `type` | string | no | `task`, `start`, or `end`; default `task` |
 | `title` | string | yes | Node title in the user's language |
 | `note` | string | no | Node note in the user's language; may be empty |
-| `icon` | string | no | Prefer one emoji |
+| `icon` | string | no | Prefer exactly one emoji. Do not use long icon names when a good emoji exists |
 | `routeRole` | string | no | B-plan only: `a`, `b`, or `ab` |
 | `end` | object | no | End rule; default manual |
 | `switchRules` | array | no | B-plan route switch rules |
@@ -307,14 +312,18 @@ For normal mode, node order is execution order. AI assistants do not need to gen
 
 ### Location End
 
+Only use `type: "location"` when both `latitude` and `longitude` are known and likely reliable. If coordinates are not available, do not create a location end rule. Use duration or manual completion instead, and mention the place or address in the node note.
+
 ```json
 {
   "type": "location",
   "location": {
     "placeName": "Library",
     "addressText": "New York Public Library",
+    "latitude": 40.7532,
+    "longitude": -73.9822,
     "radiusMeters": 120,
-    "resolvePolicy": "askUser"
+    "resolvePolicy": "useCoordinate"
   }
 }
 ```
@@ -346,7 +355,7 @@ For normal mode, node order is execution order. AI assistants do not need to gen
   "latitude": 40.7532,
   "longitude": -73.9822,
   "radiusMeters": 150,
-  "resolvePolicy": "askUser"
+  "resolvePolicy": "useCoordinate"
 }
 ```
 
@@ -361,7 +370,13 @@ For normal mode, node order is execution order. AI assistants do not need to gen
 
 AI assistants must not invent coordinates.
 
-If exact coordinates are unknown, omit `latitude` and `longitude`, then set:
+Coordinates are mandatory for any automatic location trigger:
+
+- location start requires `latitude` and `longitude`
+- location end requires `latitude` and `longitude`
+- B-plan location switch conditions require `latitude` and `longitude`
+
+If exact coordinates are unknown, omit `latitude` and `longitude`, set `resolvePolicy` to `askUser`, and do not use that location object inside a start rule, end rule, or switch rule. Put it in `note` or another descriptive field instead.
 
 ```json
 "resolvePolicy": "askUser"
@@ -369,9 +384,9 @@ If exact coordinates are unknown, omit `latitude` and `longitude`, then set:
 
 CuePlan import behavior:
 
-- Coordinates present: prefill the map.
-- Address present but no coordinates: ask the user to confirm the location on the map.
-- No address and no coordinates: mark the location as incomplete and ask the user to fill it.
+- Coordinates present: create the location trigger and prefill the map.
+- Address present but no coordinates: keep it as descriptive text only; do not create a location trigger.
+- No address and no coordinates: ignore the location object.
 
 ## 13. B-Plan Extension
 
@@ -614,8 +629,10 @@ CUEPLAN_FLOW_V1
           "location": {
             "placeName": "Office meeting room",
             "addressText": "Company office",
+            "latitude": 40.7128,
+            "longitude": -74.0060,
             "radiusMeters": 100,
-            "resolvePolicy": "askUser"
+            "resolvePolicy": "useCoordinate"
           }
         },
         "switchRules": [
@@ -662,8 +679,9 @@ Output exactly one CUEPLAN_FLOW_V1 block.
 Do not add explanations outside the block.
 Use English JSON keys and enum values exactly as specified.
 Use my language for the plan title, summary, node titles, node notes, place names, and addresses.
+Use exactly one emoji for the plan icon and every node icon whenever possible.
 Default to normal mode unless I explicitly ask for a backup route, fallback plan, Plan B, or A/B route switching.
-If a location is needed but exact coordinates are unknown, provide placeName and addressText only, omit latitude and longitude, and set resolvePolicy to askUser.
+For location start, location end, or location-based route switching, only use type "location" when you can provide reliable latitude and longitude. If coordinates are unknown, do not use location start/end/switch; use manual, scheduled, duration, or manual completion instead, and put the place or address in the note.
 Specification URL: <Canonical URL>
 ```
 
@@ -677,5 +695,6 @@ Specification URL: <Canonical URL>
 - 用户看到的内容按用户语言生成，例如“检查包”“准备出门”。
 - 普通流程默认用 `normal`。
 - 只有用户明确要备用路线、A/B 方案、B 计划时，才用 `bPlan`。
-- AI 不知道准确坐标时，不要乱写经纬度，只写地址，并设置 `resolvePolicy` 为 `askUser`。
-
+- 计划和每个节点尽量使用一个表情作为 `icon`，更适合在手机界面里快速识别。
+- 到达地点开始、到达地点结束、按地点切换路线都必须有准确经纬度。
+- AI 不知道准确坐标时，不要乱写经纬度，也不要生成地点触发。只把地点名称或地址写进说明，让用户后续自己确认。
